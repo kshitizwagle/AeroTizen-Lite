@@ -20,7 +20,7 @@
   var $ = function (id) { return document.getElementById(id); };
   var el = { grid: $('grid'), track: $('track'), ring: $('ring'), empty: $('empty'), tabs: document.querySelector('.tabs'),
     plate: $('tab-plate'), tabHome: $('tab-home'), tabApps: $('tab-apps'), menu: $('menu'), menuTitle: $('menu-title'),
-    menuItems: $('menu-items'), toast: $('toast'), time: $('time'), date: $('date'), weather: $('weather'),
+    menuItems: $('menu-items'), exit: $('exit'), toast: $('toast'), time: $('time'), date: $('date'), weather: $('weather'),
     temp: $('temp'), city: $('city') };
   var caption = document.createElement('div');
   caption.className = 'caption';
@@ -38,6 +38,7 @@
   var tab = load(STORE.tab, 'home');    // 'home' | 'apps'
   var zone = 'grid';                    // 'tabs' | 'grid' | 'menu'
   var focus = 0, scrollRow = 0, moving = -1, parkedForEmpty = false;
+  var onExit = false;                   // in the header: true when "Samsung Home" has focus
   var shown = [];                       // apps in the current grid
   var tiles = [];                       // tile elements, same order as shown
   var byId = {};
@@ -82,19 +83,42 @@
   // ---- rendering (only when the list or tab changes) -------------------------------
   function pos(i) { return { x: (i % COLS) * STEP, y: Math.floor(i / COLS) * ROW_STEP }; }
 
+  // Samsung's own Home draws the artwork it caches per app under apps_icon/all/<id>/,
+  // where <id> is the store ID (or, for some apps, the app ID). Try that first, as the old
+  // launcher did, then the app's own icon, then a letter.
+  var ART = '/opt/share/webappservice/apps_icon/';
+  var STORE_IDS = { // apps whose icon path does not reveal their store ID
+    '9Ur5IzDKqV.TizenYouTube': '111299001912', 'org.tizen.netflix-app': '3201907018807',
+    'org.tizen.primevideo': '3201910019365', 'com.samsung.tv.aria-video': '3201807016597',
+    'IkWsFHtOY9.Stremio': '3202306031311', 'MCmYXNxgcu.DisneyPlus': '3201901017640'
+  };
+  function artSources(app) {
+    var out = [];
+    function add(s) { if (s && out.indexOf(s) < 0) { out.push(s); } }
+    var cached = (app.icon || '').match(/apps_icon\/(?:all|FirstScreen)\/([^/]+)\//);
+    [STORE_IDS[app.id], cached && cached[1], app.id].forEach(function (id) {
+      if (!id) { return; }
+      add(ART + 'all/' + id + '/304x304.png');
+      add(ART + 'FirstScreen/' + id + '/250x250.png');
+    });
+    add(app.icon);
+    return out;
+  }
+
   function makeTile(app) {
     var t = document.createElement('div');
     t.className = 'tile';
-    if (app.icon) {
-      var img = new Image();
-      img.decoding = 'async';
-      img.alt = '';
-      img.onerror = function () { t.removeChild(img); t.appendChild(letter(app)); };
-      img.src = app.icon;
-      t.appendChild(img);
-    } else {
-      t.appendChild(letter(app));
-    }
+    var sources = tz ? artSources(app) : [];
+    if (!sources.length) { t.appendChild(letter(app)); return t; }
+    var img = new Image(), i = 0;
+    img.decoding = 'async';
+    img.alt = '';
+    img.onerror = function () {
+      if (++i < sources.length) { img.src = sources[i]; return; }
+      t.removeChild(img); t.appendChild(letter(app));
+    };
+    img.src = sources[0];
+    t.appendChild(img);
     return t;
   }
   function letter(app) {
@@ -131,11 +155,14 @@
   // ---- focus: transform-only updates ----------------------------------------------
   function paintFocus() {
     var inGrid = zone === 'grid' && shown.length > 0;
+    if (zone !== 'tabs') { onExit = false; }
+    var onTabs = zone === 'tabs' && !onExit;
     el.ring.classList.toggle('on', inGrid);
     el.ring.classList.toggle('move', moving >= 0);
-    el.tabs.classList.toggle('focused', zone === 'tabs');
-    el.tabHome.classList.toggle('focused', zone === 'tabs' && tab === 'home');
-    el.tabApps.classList.toggle('focused', zone === 'tabs' && tab === 'apps');
+    el.exit.classList.toggle('focused', zone === 'tabs' && onExit);
+    el.tabs.classList.toggle('focused', onTabs);
+    el.tabHome.classList.toggle('focused', onTabs && tab === 'home');
+    el.tabApps.classList.toggle('focused', onTabs && tab === 'apps');
     if (!inGrid) { setScroll(0); return; }
     var p = pos(focus), row = Math.floor(focus / COLS);
     el.ring.style.transform = 'translate3d(' + p.x + 'px,' + p.y + 'px,0)';
@@ -181,8 +208,8 @@
     if (k < 37 || k > 40) { return; }
     e.preventDefault();
     if (zone === 'tabs') {
-      if (k === KEY.LEFT) { switchTab('home'); }
-      else if (k === KEY.RIGHT) { switchTab('apps'); }
+      if (k === KEY.LEFT) { if (tab === 'apps') { switchTab('home'); } else { onExit = true; } }
+      else if (k === KEY.RIGHT) { if (onExit) { onExit = false; } else { switchTab('apps'); } }
       else if (k === KEY.DOWN && shown.length) { zone = 'grid'; focus = 0; }
       paintFocus();
       return;
@@ -209,6 +236,7 @@
     var held = enterDownAt; enterDownAt = 0;
     if (!held || longFired) { return; }
     if (zone === 'menu') { return chooseMenu(); }
+    if (zone === 'tabs' && onExit) { return openSamsungHome(); }
     if (zone === 'tabs') { zone = shown.length ? 'grid' : 'tabs'; focus = 0; paintFocus(); return; }
     if (moving >= 0) { return endMove(true); }
     if (shown[focus]) { launch(shown[focus]); }
@@ -219,6 +247,20 @@
     if (!tz || !tz.application) { return toast('Would open ' + app.name); }
     try { tz.application.launch(app.id, null, function () { toast('Could not open ' + app.name); }); }
     catch (e) { toast('Could not open ' + app.name); }
+  }
+
+  // Samsung's own Home (Smart Hub). AppControl is the fallback some firmware needs.
+  var SAMSUNG_HOME = 'com.samsung.tv.csfs';
+  function openSamsungHome() {
+    if (!tz || !tz.application) { return toast('Would open Samsung Home'); }
+    function failed() { toast('Could not open Samsung Home'); }
+    function viaControl() {
+      try {
+        tz.application.launchAppControl(new tz.ApplicationControl('http://tizen.org/appcontrol/operation/main'),
+          SAMSUNG_HOME, null, failed);
+      } catch (e) { failed(); }
+    }
+    try { tz.application.launch(SAMSUNG_HOME, null, viaControl); } catch (e) { viaControl(); }
   }
 
   // ---- tile menu and move mode ----------------------------------------------------

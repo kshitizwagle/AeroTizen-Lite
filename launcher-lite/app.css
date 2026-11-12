@@ -33,6 +33,14 @@ html, body {
 }
 .tabs.focused .tab-plate { background: #fff; }
 
+/* Opens Samsung's own launcher for anything Lite does not cover. */
+.exit {
+  position: absolute; left: 100px; top: 32px; height: 64px; padding: 0 28px; border: 0; border-radius: 32px;
+  background: rgba(255,255,255,.08); color: rgba(255,255,255,.7);
+  font-family: inherit; font-size: 24px; font-weight: 600; transition: background-color .1s linear, color .1s linear;
+}
+.exit.focused { background: #fff; color: #000; }
+
 /* The status group ends before the tabs: 960 - 170 - 32 gap - 100 padding. */
 .status {
   position: absolute; right: 100px; top: 32px; height: 64px; max-width: 658px;
