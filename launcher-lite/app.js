@@ -1,6 +1,7 @@
 // AeroTizen Lite: a minimal, fast launcher. One file, no framework, no build step.
 // Speed rules: build tile DOM only when the list changes; on key presses touch only the
-// focus ring and the track, both via transform. Never read layout in the key path.
+// focused tile, the previous one, and the focus layers (ring, glow, caption), all via
+// transform. Never read layout in the key path. All motion is transform or opacity.
 (function () {
   'use strict';
 
@@ -21,10 +22,12 @@
   var el = { grid: $('grid'), track: $('track'), ring: $('ring'), empty: $('empty'), tabs: document.querySelector('.tabs'),
     plate: $('tab-plate'), tabHome: $('tab-home'), tabApps: $('tab-apps'), menu: $('menu'), menuTitle: $('menu-title'),
     menuItems: $('menu-items'), exit: $('exit'), toast: $('toast'), time: $('time'), date: $('date'), weather: $('weather'),
-    temp: $('temp'), city: $('city') };
-  var caption = document.createElement('div');
-  caption.className = 'caption';
-  el.ring.appendChild(caption);
+    temp: $('temp'), city: $('city'), glow: $('glow'), caption: $('caption'), veil: $('veil') };
+
+  // Motion values from the animate skill: subtle focus scale, 0.97 press dip, strong ease-out.
+  var FOCUS_SCALE = 1.06, PRESS_SCALE = 1.03; // 1.03 = 1.06 x 0.97
+  var EASE_OUT = 'cubic-bezier(0.23, 1, 0.32, 1)';
+  var reduceMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
   // ---- storage --------------------------------------------------------------------
   function load(key, fallback) {
@@ -44,6 +47,7 @@
   var byId = {};
   var inputs = [];                      // HDMI ports and Live TV, shown on Home below the apps
   var layout = [];                      // {r, c} per shown item
+  var scaled = -1;                      // index of the tile currently scaled up
 
   function index() { byId = {}; all.forEach(function (a) { byId[a.id] = a; }); }
   index();
@@ -134,8 +138,9 @@
 
   // Switch the TV to the input, then hand over to Samsung's own viewer, which owns the remote.
   function openInput(item) {
+    veil(true);
     if (!tz || !tz.application) { return toast('Would switch to ' + item.name); }
-    function failed() { toast('Could not open ' + item.name); }
+    function failed() { couldNot(item.name); }
     function viewer() {
       try {
         tz.application.launch(TV_VIEWER, null, function () {
@@ -237,9 +242,10 @@
     shown = tab === 'home' ? (home || []).map(function (id) { return byId[id]; }).filter(Boolean).concat(inputs) : all.slice();
     buildLayout();
     var frag = document.createDocumentFragment();
+    scaled = -1;
     tiles = shown.map(function (app, i) {
-      var t = makeTile(app), p = pos(i);
-      t.style.transform = 'translate3d(' + p.x + 'px,' + p.y + 'px,0)';
+      var t = makeTile(app);
+      t.style.transform = tileTransform(i, 1);
       frag.appendChild(t);
       return t;
     });
@@ -258,20 +264,41 @@
   }
 
   // ---- focus: transform-only updates ----------------------------------------------
+  function tileTransform(i, scale) {
+    var p = pos(i);
+    return 'translate3d(' + p.x + 'px,' + p.y + 'px,0)' + (scale !== 1 && !reduceMotion ? ' scale(' + scale + ')' : '');
+  }
+
+  // Scales the focused tile, ring and glow together and returns the previous tile to 1.
+  // Only two tiles change per key press.
+  function scaleFocus(scale) {
+    var target = zone === 'grid' && tiles[focus] ? focus : -1;
+    if (scaled >= 0 && scaled !== target && tiles[scaled]) { tiles[scaled].style.transform = tileTransform(scaled, 1); }
+    scaled = target;
+    if (target < 0) { return; }
+    var t = tileTransform(target, scale);
+    tiles[target].style.transform = t;
+    el.ring.style.transform = t;
+    el.glow.style.transform = t;
+  }
+
   function paintFocus() {
     var inGrid = zone === 'grid' && shown.length > 0;
     if (zone !== 'tabs') { onExit = false; }
     var onTabs = zone === 'tabs' && !onExit;
     el.ring.classList.toggle('on', inGrid);
+    el.glow.classList.toggle('on', inGrid);
+    el.caption.classList.toggle('on', inGrid);
     el.ring.classList.toggle('move', moving >= 0);
     el.exit.classList.toggle('focused', zone === 'tabs' && onExit);
     el.tabs.classList.toggle('focused', onTabs);
     el.tabHome.classList.toggle('focused', onTabs && tab === 'home');
     el.tabApps.classList.toggle('focused', onTabs && tab === 'apps');
+    scaleFocus(FOCUS_SCALE);
     if (!inGrid) { setScroll(0); return; }
-    var p = pos(focus), row = layout[focus].r;
-    el.ring.style.transform = 'translate3d(' + p.x + 'px,' + p.y + 'px,0)';
-    caption.textContent = shown[focus] ? shown[focus].name : '';
+    var row = layout[focus].r;
+    el.caption.style.transform = tileTransform(focus, 1);
+    el.caption.textContent = shown[focus] ? shown[focus].name : '';
     if (row < scrollRow) { setScroll(row); }
     else if (row > scrollRow + VISIBLE_ROWS - 1) { setScroll(row - VISIBLE_ROWS + 1); }
   }
@@ -281,11 +308,21 @@
     el.track.style.transform = 'translate3d(0,' + (-row * ROW_STEP) + 'px,0)';
   }
 
+  // The new grid enters from the side of the tab it belongs to (All apps is on the right).
+  // WAAPI keeps it on the compositor; cancelling first lets rapid switches retarget.
+  var tabAnim = null;
   function switchTab(next) {
     if (next === tab) { return; }
     tab = next; save(STORE.tab, tab); focus = 0;
     scrollRow = 0; el.track.style.transform = 'translate3d(0,0,0)';
     render();
+    if (!el.grid.animate) { return; }
+    if (tabAnim) { tabAnim.cancel(); }
+    var dx = (next === 'apps' ? 48 : -48) + 'px';
+    tabAnim = el.grid.animate(reduceMotion ? [{ opacity: 0 }, { opacity: 1 }] : [
+      { opacity: 0, transform: 'translate3d(' + dx + ',0,0)' },
+      { opacity: 1, transform: 'translate3d(0,0,0)' }
+    ], { duration: 200, easing: EASE_OUT });
   }
 
   // ---- keys -----------------------------------------------------------------------
@@ -297,8 +334,9 @@
       e.preventDefault();
       if (e.repeat || enterDownAt) { return; }
       enterDownAt = Date.now(); longFired = false;
+      if (zone === 'grid' && moving < 0 && shown[focus]) { scaleFocus(PRESS_SCALE); } // press feedback
       if (zone === 'grid' && moving < 0 && shown[focus] && shown[focus].kind !== 'input') {
-        longTimer = setTimeout(function () { longFired = true; openMenu(); }, LONG_PRESS_MS);
+        longTimer = setTimeout(function () { longFired = true; scaleFocus(FOCUS_SCALE); openMenu(); }, LONG_PRESS_MS);
       }
       return;
     }
@@ -348,6 +386,7 @@
   document.addEventListener('keyup', function (e) {
     if (e.keyCode !== KEY.ENTER) { return; }
     clearTimeout(longTimer);
+    if (zone === 'grid') { scaleFocus(FOCUS_SCALE); }
     var held = enterDownAt; enterDownAt = 0;
     if (!held || longFired) { return; }
     if (zone === 'menu') { return chooseMenu(); }
@@ -359,17 +398,29 @@
   });
 
   // ---- launching ------------------------------------------------------------------
+  // Fade to black while the TV starts the app. The launch is not delayed for the fade.
+  // Returning fades back in; if the TV ignores a launch, the veil lifts after 4s.
+  var veilTimer = null;
+  function veil(on) {
+    clearTimeout(veilTimer);
+    el.veil.classList.toggle('on', on);
+    if (on) { veilTimer = setTimeout(function () { if (!document.hidden) { veil(false); } }, tz ? 4000 : 700); }
+  }
+  function couldNot(name) { veil(false); toast('Could not open ' + name); }
+
   function launch(app) {
+    veil(true);
     if (!tz || !tz.application) { return toast('Would open ' + app.name); }
-    try { tz.application.launch(app.id, null, function () { toast('Could not open ' + app.name); }); }
-    catch (e) { toast('Could not open ' + app.name); }
+    try { tz.application.launch(app.id, null, function () { couldNot(app.name); }); }
+    catch (e) { couldNot(app.name); }
   }
 
   // Samsung's own Home (Smart Hub). AppControl is the fallback some firmware needs.
   var SAMSUNG_HOME = 'com.samsung.tv.csfs';
   function openSamsungHome() {
+    veil(true);
     if (!tz || !tz.application) { return toast('Would open Samsung Home'); }
-    function failed() { toast('Could not open Samsung Home'); }
+    function failed() { couldNot('Samsung Home'); }
     function viaControl() {
       try {
         tz.application.launchAppControl(new tz.ApplicationControl('http://tizen.org/appcontrol/operation/main'),
@@ -421,7 +472,7 @@
   function swapTiles(a, b) {
     var t = tiles[a]; tiles[a] = tiles[b]; tiles[b] = t;
     var s = shown[a]; shown[a] = shown[b]; shown[b] = s;
-    [a, b].forEach(function (i) { var p = pos(i); tiles[i].style.transform = 'translate3d(' + p.x + 'px,' + p.y + 'px,0)'; });
+    [a, b].forEach(function (i) { tiles[i].style.transform = tileTransform(i, 1); });
   }
   function endMove(keep) {
     if (keep) {
@@ -500,6 +551,6 @@
     try { tz.systeminfo.addPropertyValueChangeListener('VIDEOSOURCE', loadInputs); } catch (e) { /* unsupported */ }
   }
   document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) { refreshApps(); loadInputs(); refreshWeather(); }
+    if (!document.hidden) { veil(false); refreshApps(); loadInputs(); refreshWeather(); }
   });
 })();

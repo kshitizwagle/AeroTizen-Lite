@@ -2,7 +2,14 @@
    - no backdrop-filter, filter, blur or SVG filters; no animated box-shadow;
    - only transform and opacity ever transition;
    - one moving focus ring instead of restyling tiles;
-   - fixed 1920x1080 layout; tiles are positioned by script, so nothing reflows on focus. */
+   - fixed 1920x1080 layout; tiles are positioned by script, so nothing reflows on focus.
+   Motion follows the animate / animation-performance skills: transform and opacity only,
+   strong ease-out for responses, ease-in-out for things moving on screen, UI under 300ms. */
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --focus-ms: 120ms;
+}
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body {
   width: 1920px; height: 1080px; overflow: hidden;
@@ -29,9 +36,14 @@ html, body {
 .tab-plate {
   position: absolute; left: 4px; top: 4px; width: 166px; height: 56px; border-radius: 28px;
   background: rgba(255,255,255,.16); transform: translate3d(0,0,0);
-  transition: transform .14s ease-out, background-color .1s linear;
+  transition: transform 200ms var(--ease-in-out);
 }
-.tabs.focused .tab-plate { background: #fff; }
+/* Focus whitens the plate by fading in a white copy, so only opacity changes. */
+.tab-plate::after {
+  content: ""; position: absolute; left: 0; top: 0; width: 100%; height: 100%; border-radius: 28px;
+  background: #fff; opacity: 0; transition: opacity 100ms ease;
+}
+.tabs.focused .tab-plate::after { opacity: 1; }
 
 /* Opens Samsung's own launcher for anything Lite does not cover. */
 .exit {
@@ -55,28 +67,37 @@ html, body {
 
 /* ---- grid ---- */
 .viewport { position: absolute; left: 84px; top: 168px; width: 1752px; height: 912px; overflow: hidden; }
-.track { position: absolute; left: 16px; top: 24px; width: 1720px; transform: translate3d(0,0,0); transition: transform .18s ease-out; }
+.track { position: absolute; left: 16px; top: 24px; width: 1720px; transform: translate3d(0,0,0); transition: transform 180ms var(--ease-in-out); }
 .grid { position: relative; }
 .tile {
   position: absolute; left: 0; top: 0; width: 260px; height: 260px; border-radius: 22px;
   background: #222a32; overflow: hidden; contain: strict;
+  transition: transform var(--focus-ms) var(--ease-out);
 }
 .tile img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .tile .letter { display: block; font-size: 96px; font-weight: 600; line-height: 260px; text-align: center; color: rgba(255,255,255,.75); }
 .tile.moving { opacity: .55; }
 
+/* Focus: ring, glow and caption are three small layers that only move. Their content never
+   changes while moving (the caption is separate because its text changes), so the glow's
+   shadow is painted once and then composited, never repainted. */
+.ring, .glow, .caption { position: absolute; pointer-events: none; opacity: 0; will-change: transform; }
 .ring {
-  position: absolute; left: -8px; top: -8px; width: 276px; height: 276px; border-radius: 28px;
-  border: 4px solid #fff; pointer-events: none; opacity: 0;
-  transform: translate3d(0,0,0); transition: transform .12s ease-out, opacity .1s linear;
-  will-change: transform;
+  left: -8px; top: -8px; width: 276px; height: 276px; border-radius: 28px; border: 4px solid #fff;
+  transform: translate3d(0,0,0); transition: transform var(--focus-ms) var(--ease-out), opacity 100ms ease;
 }
-.ring.on { opacity: 1; }
 .ring.move { border-color: #7fc4ff; }
-.ring .caption {
-  position: absolute; left: -40px; right: -40px; top: 284px; text-align: center;
-  font-size: 24px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.glow {
+  left: 0; top: 0; width: 260px; height: 260px; border-radius: 22px;
+  box-shadow: 0 0 40px 4px rgba(255,255,255,.16), 0 28px 48px rgba(0,0,0,.6);
+  transform: translate3d(0,0,0); transition: transform var(--focus-ms) var(--ease-out), opacity 100ms ease;
 }
+.caption {
+  left: -40px; top: 276px; width: 340px; height: 34px; line-height: 34px; text-align: center; contain: strict;
+  font-size: 24px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transform: translate3d(0,0,0); transition: transform var(--focus-ms) var(--ease-out), opacity 100ms ease;
+}
+.ring.on, .glow.on, .caption.on { opacity: 1; }
 .empty { position: absolute; left: 0; top: 140px; width: 1720px; text-align: center; font-size: 30px; color: rgba(255,255,255,.6); }
 
 /* ---- tile menu and toast: solid backgrounds, no blur ---- */
@@ -103,3 +124,35 @@ html, body {
 
 /* Build version, so the TV shows which build is installed. */
 .version { position: absolute; right: 24px; bottom: 16px; font-size: 16px; color: rgba(255,255,255,.28); }
+
+/* ---- launch veil: fades to black while the TV starts the app ---- */
+.veil {
+  position: fixed; left: 0; top: 0; width: 1920px; height: 1080px; background: #000;
+  opacity: 0; pointer-events: none; transition: opacity 200ms var(--ease-out);
+}
+.veil.on { opacity: 1; }
+
+/* ---- drifting backdrop ----
+   Gradients are painted once into a half-size layer and scaled x2 (smooth gradients upscale
+   cleanly), so the GPU texture is ~3.6 MB instead of ~8 MB. Only its transform animates. */
+.backdrop {
+  position: fixed; left: -120px; top: -90px; width: 1200px; height: 750px;
+  transform-origin: 0 0; transform: translate3d(0,0,0) scale(2);
+  background:
+    radial-gradient(closest-side at 22% 30%, rgba(64,122,160,.32), transparent),
+    radial-gradient(closest-side at 78% 22%, rgba(92,72,150,.22), transparent),
+    radial-gradient(closest-side at 60% 82%, rgba(40,110,120,.22), transparent);
+  animation: drift 40s var(--ease-in-out) infinite alternate;
+  will-change: transform;
+  pointer-events: none;
+}
+@keyframes drift {
+  from { transform: translate3d(0,0,0) scale(2); }
+  to { transform: translate3d(-90px,40px,0) scale(2); }
+}
+
+/* Reduced motion: fewer, gentler animations. Keep fades; drop movement and scaling. */
+@media (prefers-reduced-motion: reduce) {
+  .backdrop { animation: none; }
+  .tile, .ring, .glow, .caption, .track, .tab-plate { transition-property: opacity; }
+}

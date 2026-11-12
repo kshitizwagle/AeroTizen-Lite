@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
+  <div class="backdrop" aria-hidden="true"></div>
   <header class="bar">
     <button class="exit" id="exit" type="button" tabindex="-1">Samsung Home</button>
     <nav class="tabs" aria-label="App views">
@@ -23,15 +24,18 @@
 
   <main class="viewport" id="viewport">
     <div class="track" id="track">
+      <div class="glow" id="glow"></div>
       <div class="grid" id="grid"></div>
       <div class="ring" id="ring"></div>
+      <div class="caption" id="caption"></div>
     </div>
     <p class="empty" id="empty" hidden></p>
   </main>
 
   <div class="menu" id="menu" hidden><div class="menu-box"><h2 id="menu-title"></h2><div id="menu-items"></div></div></div>
+  <div class="veil" id="veil"></div>
   <div class="toast" id="toast" hidden></div>
-  <div class="version" id="version">Lite 0.2.1</div>
+  <div class="version" id="version">Lite 0.3.0</div>
 
   <script src="app.js"></script>
 </body>
