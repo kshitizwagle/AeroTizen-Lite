@@ -483,7 +483,17 @@
   render();                 // instant first paint from the cached list
   tick();
   // Load the live list and weather after the first frame so they never delay it.
-  requestAnimationFrame(function () { setTimeout(function () { refreshApps(); loadInputs(); refreshWeather(); }, 0); });
+  requestAnimationFrame(function () { setTimeout(function () { startService(); refreshApps(); loadInputs(); refreshWeather(); }, 0); });
+
+  // The Home watcher service (bundled, unchanged from AeroTizen) must be running for
+  // `aerotizen home apply/restore`. It starts at boot; this covers fresh installs.
+  function startService() {
+    if (!tz || !tz.application || !tz.ApplicationControl) { return; }
+    try {
+      tz.application.launchAppControl(new tz.ApplicationControl('http://tizen.org/appcontrol/operation/service'),
+        'DclHome001.Watcher', null, null);
+    } catch (e) { /* without it, Home stays on Samsung's screen */ }
+  }
   setInterval(refreshWeather, WEATHER_EVERY_MS);
   // Plugging or unplugging a device updates the Inputs row.
   if (tz && tz.systeminfo && tz.systeminfo.addPropertyValueChangeListener) {
