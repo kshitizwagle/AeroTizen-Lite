@@ -49,7 +49,13 @@ body.glass-ui #home-root .topbar-left > .icon-btn.focused { color: #000; }
   background: #fff; box-shadow: 0 10px 24px rgba(0,0,0,.45);
 }
 
-#home-root .topbar-right { gap: 0; }
+/* The tabs are absolutely centred, so they take no flow space. Cap the right group so it
+   ends before the pill (half its ~328px width plus a gap); the city name gives way first. */
+#home-root .topbar-right { gap: 0; min-width: 0; max-width: calc(50% - 196px); white-space: nowrap; }
+#home-root .topbar-right > .date, #home-root .topbar-right > .time { flex: 0 0 auto; }
+#home-root .weather { min-width: 0; flex: 0 1 auto; overflow: hidden; }
+#home-root .weather svg, #home-root .weather b { flex: 0 0 auto; }
+#home-root .weather span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 #home-root .topbar-right > * + * { margin-left: 22px; }
 /* The date follows Settings → Date & time; "No date" hides it through [hidden]. */
 #home-root .date { font-size: 28px; font-weight: 500; color: rgba(255,255,255,.62); }
