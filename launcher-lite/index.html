@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920">
+  <title>AeroTizen Lite</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="bar">
+    <nav class="tabs" aria-label="App views">
+      <span class="tab-plate" id="tab-plate"></span>
+      <button class="tab" id="tab-home" type="button" tabindex="-1">Home</button>
+      <button class="tab" id="tab-apps" type="button" tabindex="-1">All apps</button>
+    </nav>
+    <div class="status">
+      <span class="weather" id="weather" hidden><b id="temp"></b><span id="city"></span></span>
+      <span class="date" id="date"></span>
+      <span class="time" id="time"></span>
+    </div>
+  </header>
+
+  <main class="viewport" id="viewport">
+    <div class="track" id="track">
+      <div class="grid" id="grid"></div>
+      <div class="ring" id="ring"></div>
+    </div>
+    <p class="empty" id="empty" hidden></p>
+  </main>
+
+  <div class="menu" id="menu" hidden><div class="menu-box"><h2 id="menu-title"></h2><div id="menu-items"></div></div></div>
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

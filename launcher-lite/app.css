@@ -1,0 +1,86 @@
+/* AeroTizen Lite. Rules for a 32-bit TV GPU:
+   - no backdrop-filter, filter, blur or SVG filters; no animated box-shadow;
+   - only transform and opacity ever transition;
+   - one moving focus ring instead of restyling tiles;
+   - fixed 1920x1080 layout; tiles are positioned by script, so nothing reflows on focus. */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 1920px; height: 1080px; overflow: hidden;
+  background: #101418 linear-gradient(160deg, #1d2a33 0%, #11161c 55%, #0b0e12 100%);
+  color: #f2f5f8; font-family: "SamsungOne", "Roboto", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased; cursor: none; user-select: none;
+}
+[hidden] { display: none !important; }
+
+/* ---- header ---- */
+.bar { position: absolute; left: 0; top: 0; width: 1920px; height: 128px; padding: 0 100px; }
+.tabs {
+  position: absolute; left: 50%; top: 32px; margin-left: -170px;
+  width: 340px; height: 64px; padding: 4px; border-radius: 32px;
+  background: rgba(255,255,255,.08); display: flex;
+}
+.tab {
+  position: relative; z-index: 1; width: 166px; height: 56px; border: 0; border-radius: 28px;
+  background: transparent; font-family: inherit; font-size: 26px; font-weight: 600; line-height: 56px;
+  color: rgba(255,255,255,.55); transition: color .1s linear;
+}
+.tab.active { color: #fff; }
+.tab.focused { color: #000; }
+.tab-plate {
+  position: absolute; left: 4px; top: 4px; width: 166px; height: 56px; border-radius: 28px;
+  background: rgba(255,255,255,.16); transform: translate3d(0,0,0);
+  transition: transform .14s ease-out, background-color .1s linear;
+}
+.tabs.focused .tab-plate { background: #fff; }
+
+/* The status group ends before the tabs: 960 - 170 - 32 gap - 100 padding. */
+.status {
+  position: absolute; right: 100px; top: 32px; height: 64px; max-width: 658px;
+  display: flex; align-items: center; white-space: nowrap; overflow: hidden;
+}
+.status > * + * { margin-left: 24px; }
+.weather { display: flex; min-width: 0; font-size: 28px; color: rgba(255,255,255,.8); }
+.weather b { flex: 0 0 auto; font-weight: 600; margin-right: 12px; }
+.weather span { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: rgba(255,255,255,.62); }
+.date { flex: 0 0 auto; font-size: 28px; font-weight: 500; color: rgba(255,255,255,.62); }
+.time { flex: 0 0 auto; font-size: 34px; font-weight: 600; letter-spacing: -.02em; }
+
+/* ---- grid ---- */
+.viewport { position: absolute; left: 84px; top: 168px; width: 1752px; height: 912px; overflow: hidden; }
+.track { position: absolute; left: 16px; top: 24px; width: 1720px; transform: translate3d(0,0,0); transition: transform .18s ease-out; }
+.grid { position: relative; }
+.tile {
+  position: absolute; left: 0; top: 0; width: 260px; height: 260px; border-radius: 22px;
+  background: #222a32; overflow: hidden; contain: strict;
+}
+.tile img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.tile .letter { display: block; font-size: 96px; font-weight: 600; line-height: 260px; text-align: center; color: rgba(255,255,255,.75); }
+.tile.moving { opacity: .55; }
+
+.ring {
+  position: absolute; left: -8px; top: -8px; width: 276px; height: 276px; border-radius: 28px;
+  border: 4px solid #fff; pointer-events: none; opacity: 0;
+  transform: translate3d(0,0,0); transition: transform .12s ease-out, opacity .1s linear;
+  will-change: transform;
+}
+.ring.on { opacity: 1; }
+.ring.move { border-color: #7fc4ff; }
+.ring .caption {
+  position: absolute; left: -40px; right: -40px; top: 284px; text-align: center;
+  font-size: 24px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.empty { position: absolute; left: 0; top: 140px; width: 1720px; text-align: center; font-size: 30px; color: rgba(255,255,255,.6); }
+
+/* ---- tile menu and toast: solid backgrounds, no blur ---- */
+.menu { position: fixed; left: 0; top: 0; width: 1920px; height: 1080px; background: rgba(0,0,0,.6); }
+.menu-box {
+  position: absolute; left: 50%; top: 50%; width: 520px; margin-left: -260px;
+  transform: translate3d(0,-50%,0); padding: 28px; border-radius: 28px; background: #232b33;
+}
+.menu h2 { font-size: 28px; font-weight: 600; margin: 0 8px 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.menu-item { height: 68px; padding: 0 24px; border-radius: 18px; font-size: 26px; line-height: 68px; color: rgba(255,255,255,.8); }
+.menu-item.focused { background: #fff; color: #000; }
+.toast {
+  position: fixed; left: 50%; bottom: 64px; width: 720px; margin-left: -360px; padding: 18px 28px;
+  border-radius: 20px; background: #2a333c; font-size: 26px; text-align: center;
+}
