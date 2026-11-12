@@ -9,7 +9,11 @@
 <body>
   <div class="backdrop" aria-hidden="true"></div>
   <header class="bar">
-    <button class="exit" id="exit" type="button" tabindex="-1">Samsung Home</button>
+    <div class="actions">
+      <button class="exit" id="exit" type="button" tabindex="-1">Samsung Home</button>
+      <button class="exit" id="search" type="button" tabindex="-1">Search</button>
+      <button class="exit" id="store" type="button" tabindex="-1">Store</button>
+    </div>
     <nav class="tabs" aria-label="App views">
       <span class="tab-plate" id="tab-plate"></span>
       <button class="tab" id="tab-home" type="button" tabindex="-1">Home</button>
@@ -35,8 +39,9 @@
   <div class="menu" id="menu" hidden><div class="menu-box"><h2 id="menu-title"></h2><div id="menu-items"></div></div></div>
   <div class="veil" id="veil"></div>
   <div class="toast" id="toast" hidden></div>
-  <div class="version" id="version">Lite 0.3.0</div>
+  <div class="version" id="version">Lite 0.3.1</div>
 
+  <script src="icon-map.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

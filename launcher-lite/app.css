@@ -45,9 +45,11 @@ html, body {
 }
 .tabs.focused .tab-plate::after { opacity: 1; }
 
-/* Opens Samsung's own launcher for anything Lite does not cover. */
+/* Samsung Home, Search and Store open Samsung's own apps for anything Lite does not cover. */
+.actions { position: absolute; left: 100px; top: 32px; display: flex; }
+.actions > * + * { margin-left: 16px; }
 .exit {
-  position: absolute; left: 100px; top: 32px; height: 64px; padding: 0 28px; border: 0; border-radius: 32px;
+  height: 64px; padding: 0 28px; border: 0; border-radius: 32px;
   background: rgba(255,255,255,.08); color: rgba(255,255,255,.7);
   font-family: inherit; font-size: 24px; font-weight: 600; transition: background-color .1s linear, color .1s linear;
 }
@@ -128,9 +130,10 @@ html, body {
 /* ---- launch veil: fades to black while the TV starts the app ---- */
 .veil {
   position: fixed; left: 0; top: 0; width: 1920px; height: 1080px; background: #000;
-  opacity: 0; pointer-events: none; transition: opacity 200ms var(--ease-out);
+  opacity: 0; pointer-events: none; transition: opacity 200ms var(--ease-out); z-index: 10;
 }
 .veil.on { opacity: 1; }
+.toast { z-index: 11; } /* failure messages stay readable over the veil */
 
 /* ---- drifting backdrop ----
    Gradients are painted once into a half-size layer and scaled x2 (smooth gradients upscale

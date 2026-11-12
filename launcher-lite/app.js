@@ -41,7 +41,7 @@
   var tab = load(STORE.tab, 'home');    // 'home' | 'apps'
   var zone = 'grid';                    // 'tabs' | 'grid' | 'menu'
   var focus = 0, scrollRow = 0, moving = -1, parkedForEmpty = false;
-  var onExit = false;                   // in the header: true when "Samsung Home" has focus
+  var headerBtn = -1;                   // focused header button (index into HEADER), or -1 for the tabs
   var shown = [];                       // apps in the current grid
   var tiles = [];                       // tile elements, same order as shown
   var byId = {};
@@ -177,23 +177,26 @@
     return t;
   }
 
-  // Samsung's own Home draws the artwork it caches per app under apps_icon/all/<id>/,
-  // where <id> is the store ID (or, for some apps, the app ID). Try that first, as the old
-  // launcher did, then the app's own icon, then a letter.
-  var ART = '/opt/share/webappservice/apps_icon/';
-  var STORE_IDS = { // apps whose icon path does not reveal their store ID
+  // Samsung's own Home draws each store app's artwork from apps_icon/all/<store ID>/304x304.png.
+  // The page cannot learn store IDs, so icon-map.js (generated from the TV's app list by
+  // tools/lite_icon_map.py) supplies them; a few well-known apps are listed here as well, and
+  // the app's own icon path is used when it points into the same cache.
+  // Order: Samsung artwork, then the app's own icon, then a letter.
+  var ART = '/opt/share/webappservice/apps_icon/all/';
+  var ICON_MAP = window.LITE_ICON_MAP || {};
+  var STORE_IDS = {
     '9Ur5IzDKqV.TizenYouTube': '111299001912', 'org.tizen.netflix-app': '3201907018807',
     'org.tizen.primevideo': '3201910019365', 'com.samsung.tv.aria-video': '3201807016597',
-    'IkWsFHtOY9.Stremio': '3202306031311', 'MCmYXNxgcu.DisneyPlus': '3201901017640'
+    'IkWsFHtOY9.Stremio': '3202306031311', 'MCmYXNxgcu.DisneyPlus': '3201901017640',
+    'rJeHak5zRg.Spotify': '3201606009684', 'rTn6ClEurC.Jellyfin': '3202007021208',
+    'org.tizen.apple.apple-music': '3201908019041', 'org.tizen.browser': '3202010022079'
   };
   function artSources(app) {
     var out = [];
     function add(s) { if (s && out.indexOf(s) < 0) { out.push(s); } }
-    var cached = (app.icon || '').match(/apps_icon\/(?:all|FirstScreen)\/([^/]+)\//);
-    [STORE_IDS[app.id], cached && cached[1], app.id].forEach(function (id) {
-      if (!id) { return; }
-      add(ART + 'all/' + id + '/304x304.png');
-      add(ART + 'FirstScreen/' + id + '/250x250.png');
+    var cached = (app.icon || '').match(/apps_icon\/all\/([^/]+)\//);
+    [ICON_MAP[app.id], STORE_IDS[app.id], cached && cached[1]].forEach(function (id) {
+      if (id) { add(ART + id + '/304x304.png'); }
     });
     add(app.icon);
     return out;
@@ -284,13 +287,13 @@
 
   function paintFocus() {
     var inGrid = zone === 'grid' && shown.length > 0;
-    if (zone !== 'tabs') { onExit = false; }
-    var onTabs = zone === 'tabs' && !onExit;
+    if (zone !== 'tabs') { headerBtn = -1; }
+    var onTabs = zone === 'tabs' && headerBtn < 0;
     el.ring.classList.toggle('on', inGrid);
     el.glow.classList.toggle('on', inGrid);
     el.caption.classList.toggle('on', inGrid);
     el.ring.classList.toggle('move', moving >= 0);
-    el.exit.classList.toggle('focused', zone === 'tabs' && onExit);
+    HEADER.forEach(function (b, i) { b.el.classList.toggle('focused', zone === 'tabs' && headerBtn === i); });
     el.tabs.classList.toggle('focused', onTabs);
     el.tabHome.classList.toggle('focused', onTabs && tab === 'home');
     el.tabApps.classList.toggle('focused', onTabs && tab === 'apps');
@@ -351,8 +354,14 @@
     if (k < 37 || k > 40) { return; }
     e.preventDefault();
     if (zone === 'tabs') {
-      if (k === KEY.LEFT) { if (tab === 'apps') { switchTab('home'); } else { onExit = true; } }
-      else if (k === KEY.RIGHT) { if (onExit) { onExit = false; } else { switchTab('apps'); } }
+      // Header order, left to right: Samsung Home, Search, Store, then the Home / All apps tabs.
+      var last = HEADER.length - 1;
+      if (k === KEY.LEFT) {
+        if (headerBtn < 0) { if (tab === 'apps') { switchTab('home'); } else { headerBtn = last; } }
+        else if (headerBtn > 0) { headerBtn--; }
+      } else if (k === KEY.RIGHT) {
+        if (headerBtn < 0) { switchTab('apps'); } else { headerBtn = headerBtn < last ? headerBtn + 1 : -1; }
+      }
       else if (k === KEY.DOWN && shown.length) { zone = 'grid'; focus = 0; }
       paintFocus();
       return;
@@ -390,7 +399,7 @@
     var held = enterDownAt; enterDownAt = 0;
     if (!held || longFired) { return; }
     if (zone === 'menu') { return chooseMenu(); }
-    if (zone === 'tabs' && onExit) { return openSamsungHome(); }
+    if (zone === 'tabs' && headerBtn >= 0) { return openSystemApp(HEADER[headerBtn]); }
     if (zone === 'tabs') { zone = shown.length ? 'grid' : 'tabs'; focus = 0; paintFocus(); return; }
     if (moving >= 0) { return endMove(true); }
     var item = shown[focus];
@@ -415,19 +424,29 @@
     catch (e) { couldNot(app.name); }
   }
 
-  // Samsung's own Home (Smart Hub). AppControl is the fallback some firmware needs.
-  var SAMSUNG_HOME = 'com.samsung.tv.csfs';
-  function openSamsungHome() {
+  // Header buttons open Samsung's own apps for what Lite leaves to them. IDs are tried in
+  // order (com.samsung.tv.store first: org.volt.apps opens blank on some Tizen 9 models),
+  // each by plain launch and then by AppControl, which some firmware needs.
+  var HEADER = [
+    { el: $('exit'), label: 'Samsung Home', ids: ['com.samsung.tv.csfs'] },
+    { el: $('search'), label: 'Search', ids: ['com.samsung.tv.searchall'] },
+    { el: $('store'), label: 'the app store', ids: ['com.samsung.tv.store', 'org.volt.apps'] }
+  ];
+  function openSystemApp(button) {
     veil(true);
-    if (!tz || !tz.application) { return toast('Would open Samsung Home'); }
-    function failed() { couldNot('Samsung Home'); }
-    function viaControl() {
-      try {
-        tz.application.launchAppControl(new tz.ApplicationControl('http://tizen.org/appcontrol/operation/main'),
-          SAMSUNG_HOME, null, failed);
-      } catch (e) { failed(); }
-    }
-    try { tz.application.launch(SAMSUNG_HOME, null, viaControl); } catch (e) { viaControl(); }
+    if (!tz || !tz.application) { return toast('Would open ' + button.label); }
+    var ids = button.ids.slice();
+    (function next() {
+      var id = ids.shift();
+      if (!id) { return couldNot(button.label); }
+      function viaControl() {
+        try {
+          tz.application.launchAppControl(new tz.ApplicationControl('http://tizen.org/appcontrol/operation/main'),
+            id, null, next);
+        } catch (e) { next(); }
+      }
+      try { tz.application.launch(id, null, viaControl); } catch (e) { viaControl(); }
+    })();
   }
 
   // ---- tile menu and move mode ----------------------------------------------------
