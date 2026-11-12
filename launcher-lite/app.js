@@ -42,6 +42,8 @@
   var shown = [];                       // apps in the current grid
   var tiles = [];                       // tile elements, same order as shown
   var byId = {};
+  var inputs = [];                      // HDMI ports and Live TV, shown on Home below the apps
+  var layout = [];                      // {r, c} per shown item
 
   function index() { byId = {}; all.forEach(function (a) { byId[a.id] = a; }); }
   index();
@@ -81,7 +83,94 @@
   }
 
   // ---- rendering (only when the list or tab changes) -------------------------------
-  function pos(i) { return { x: (i % COLS) * STEP, y: Math.floor(i / COLS) * ROW_STEP }; }
+  function pos(i) { var l = layout[i]; return { x: l.c * STEP, y: l.r * ROW_STEP }; }
+
+  // ---- inputs (HDMI ports and the TV tuner) ------------------------------------------
+  // Names the TV uses when nothing is plugged in or the device is unidentified.
+  var PLACEHOLDER = /^(hdmi( ?\d+)?|source( hdmi)?( \d+)?|input( hdmi)?( \d+)?|unknown( device)?|unrecogni[sz]ed( device)?|no device|not connected|disconnected)$/i;
+  var INPUT_PRESETS = { 'HDMI 1': { name: 'ViaTV', icon: 'assets/viatv.png' } }; // your set-top box
+  var TV_VIEWER = 'org.tizen.tv-viewer';
+
+  function portName(s) { return s.type === 'TV' ? 'Live TV' : s.type + ' ' + s.number; }
+  function toInput(s, connected) {
+    var port = portName(s), preset = INPUT_PRESETS[port] || {};
+    var device = typeof s.editName === 'string' && s.editName.trim() && !PLACEHOLDER.test(s.editName.trim()) ? s.editName.trim() : '';
+    return { kind: 'input', id: 'input:' + port, port: port, name: preset.name || device || port,
+      icon: preset.icon || '', connected: connected || s.signal === true, raw: s };
+  }
+
+  function loadInputs() {
+    if (!tz || !tz.systeminfo) {
+      if (!inputs.length) {
+        inputs = [{ type: 'TV', number: 1 }, { type: 'HDMI', number: 1 }, { type: 'HDMI', number: 2, editName: 'Xbox' },
+          { type: 'HDMI', number: 3 }].map(function (s, i) { return toInput(s, i < 3); });
+        render();
+      }
+      return;
+    }
+    try {
+      tz.systeminfo.getPropertyValue('VIDEOSOURCE', function (info) {
+        var byPort = {};
+        function add(list, connected) {
+          (list || []).forEach(function (s) {
+            if (!s || s.type === 'MEDIA' || (s.type !== 'TV' && s.type !== 'HDMI')) { return; }
+            var item = toInput(s, connected), prior = byPort[item.port];
+            if (!prior || (!prior.connected && item.connected)) { byPort[item.port] = item; }
+          });
+        }
+        add(info.connected, true);
+        add(info.disconnected, false);
+        // Fixed order (Live TV, then HDMI 1, 2, ...) so tiles never jump around.
+        var next = Object.keys(byPort).map(function (k) { return byPort[k]; }).sort(function (a, b) {
+          return (a.raw.type === 'TV' ? 0 : 1) - (b.raw.type === 'TV' ? 0 : 1) || a.raw.number - b.raw.number;
+        });
+        var key = function (l) { return l.map(function (i) { return i.port + i.name + i.connected; }).join('|'); };
+        if (key(next) === key(inputs)) { return; }
+        inputs = next;
+        if (tab === 'home') { render(); }
+      }, function () { /* keep what we have */ });
+    } catch (e) { /* VIDEOSOURCE unsupported */ }
+  }
+
+  // Switch the TV to the input, then hand over to Samsung's own viewer, which owns the remote.
+  function openInput(item) {
+    if (!tz || !tz.application) { return toast('Would switch to ' + item.name); }
+    function failed() { toast('Could not open ' + item.name); }
+    function viewer() {
+      try {
+        tz.application.launch(TV_VIEWER, null, function () {
+          try {
+            tz.application.launchAppControl(new tz.ApplicationControl('http://tizen.org/appcontrol/operation/main'),
+              TV_VIEWER, null, failed);
+          } catch (e) { failed(); }
+        });
+      } catch (e) { failed(); }
+    }
+    if (!tz.tvwindow || !tz.tvwindow.setSource) { return viewer(); }
+    try { tz.tvwindow.setSource(item.raw, viewer, failed, 'MAIN'); } catch (e) { failed(); }
+  }
+
+  function makeInputTile(item) {
+    var t = document.createElement('div');
+    t.className = 'tile input' + (item.connected ? '' : ' off');
+    if (item.icon) {
+      var img = new Image();
+      img.decoding = 'async'; img.alt = ''; img.className = 'input-logo'; img.src = item.icon;
+      t.appendChild(img);
+    } else {
+      var name = document.createElement('span');
+      name.className = 'input-name';
+      name.textContent = item.name;
+      t.appendChild(name);
+    }
+    if (item.name !== item.port) {
+      var port = document.createElement('span');
+      port.className = 'input-port';
+      port.textContent = item.port;
+      t.appendChild(port);
+    }
+    return t;
+  }
 
   // Samsung's own Home draws the artwork it caches per app under apps_icon/all/<id>/,
   // where <id> is the store ID (or, for some apps, the app ID). Try that first, as the old
@@ -106,6 +195,7 @@
   }
 
   function makeTile(app) {
+    if (app.kind === 'input') { return makeInputTile(app); }
     var t = document.createElement('div');
     t.className = 'tile';
     var sources = tz ? artSources(app) : [];
@@ -128,9 +218,24 @@
     return s;
   }
 
+  // Rows: apps fill rows of COLS; on Home the inputs start on their own row below.
+  function buildLayout() {
+    layout = [];
+    var apps = 0;
+    shown.forEach(function (item, i) {
+      if (item.kind === 'input') {
+        var first = Math.ceil(apps / COLS), k = i - apps;
+        layout.push({ r: first + Math.floor(k / COLS), c: k % COLS });
+      } else {
+        layout.push({ r: Math.floor(apps / COLS), c: apps % COLS }); apps++;
+      }
+    });
+  }
+
   function render() {
     ensureHome();
-    shown = tab === 'home' ? (home || []).map(function (id) { return byId[id]; }).filter(Boolean) : all.slice();
+    shown = tab === 'home' ? (home || []).map(function (id) { return byId[id]; }).filter(Boolean).concat(inputs) : all.slice();
+    buildLayout();
     var frag = document.createDocumentFragment();
     tiles = shown.map(function (app, i) {
       var t = makeTile(app), p = pos(i);
@@ -164,7 +269,7 @@
     el.tabHome.classList.toggle('focused', onTabs && tab === 'home');
     el.tabApps.classList.toggle('focused', onTabs && tab === 'apps');
     if (!inGrid) { setScroll(0); return; }
-    var p = pos(focus), row = Math.floor(focus / COLS);
+    var p = pos(focus), row = layout[focus].r;
     el.ring.style.transform = 'translate3d(' + p.x + 'px,' + p.y + 'px,0)';
     caption.textContent = shown[focus] ? shown[focus].name : '';
     if (row < scrollRow) { setScroll(row); }
@@ -192,7 +297,7 @@
       e.preventDefault();
       if (e.repeat || enterDownAt) { return; }
       enterDownAt = Date.now(); longFired = false;
-      if (zone === 'grid' && moving < 0 && shown.length) {
+      if (zone === 'grid' && moving < 0 && shown[focus] && shown[focus].kind !== 'input') {
         longTimer = setTimeout(function () { longFired = true; openMenu(); }, LONG_PRESS_MS);
       }
       return;
@@ -214,21 +319,31 @@
       paintFocus();
       return;
     }
-    var col = focus % COLS, next = focus;
-    if (k === KEY.LEFT && col > 0) { next = focus - 1; }
-    else if (k === KEY.RIGHT && col < COLS - 1 && focus + 1 < shown.length) { next = focus + 1; }
-    else if (k === KEY.DOWN) {
-      if (focus + COLS < shown.length) { next = focus + COLS; }
-      else if (Math.floor(focus / COLS) < Math.floor((shown.length - 1) / COLS)) { next = shown.length - 1; }
-    } else if (k === KEY.UP) {
-      if (focus - COLS >= 0) { next = focus - COLS; }
-      else if (moving < 0) { zone = 'tabs'; paintFocus(); return; }
+    var here = layout[focus], next = focus;
+    if (k === KEY.LEFT && focus > 0 && layout[focus - 1].r === here.r) { next = focus - 1; }
+    else if (k === KEY.RIGHT && focus + 1 < shown.length && layout[focus + 1].r === here.r) { next = focus + 1; }
+    else if (k === KEY.DOWN || k === KEY.UP) {
+      var target = inRow(here.r + (k === KEY.DOWN ? 1 : -1), here.c);
+      if (target >= 0) { next = target; }
+      else if (k === KEY.UP && moving < 0) { zone = 'tabs'; paintFocus(); return; }
     }
     if (next === focus) { return; }
-    if (moving >= 0) { swapTiles(focus, next); }
+    if (moving >= 0) {
+      if (shown[next].kind === 'input') { return; } // inputs stay in their own row
+      swapTiles(focus, next);
+    }
     focus = next;
     paintFocus();
   });
+
+  // The item in row r closest to column c, or -1 if the row does not exist.
+  function inRow(r, c) {
+    var best = -1;
+    for (var i = 0; i < layout.length; i++) {
+      if (layout[i].r === r && (best < 0 || Math.abs(layout[i].c - c) < Math.abs(layout[best].c - c))) { best = i; }
+    }
+    return best;
+  }
 
   document.addEventListener('keyup', function (e) {
     if (e.keyCode !== KEY.ENTER) { return; }
@@ -239,7 +354,8 @@
     if (zone === 'tabs' && onExit) { return openSamsungHome(); }
     if (zone === 'tabs') { zone = shown.length ? 'grid' : 'tabs'; focus = 0; paintFocus(); return; }
     if (moving >= 0) { return endMove(true); }
-    if (shown[focus]) { launch(shown[focus]); }
+    var item = shown[focus];
+    if (item) { if (item.kind === 'input') { openInput(item); } else { launch(item); } }
   });
 
   // ---- launching ------------------------------------------------------------------
@@ -308,7 +424,10 @@
     [a, b].forEach(function (i) { var p = pos(i); tiles[i].style.transform = 'translate3d(' + p.x + 'px,' + p.y + 'px,0)'; });
   }
   function endMove(keep) {
-    if (keep) { home = shown.map(function (a) { return a.id; }); save(STORE.home, home); moving = -1; render(); return; }
+    if (keep) {
+      home = shown.filter(function (a) { return a.kind !== 'input'; }).map(function (a) { return a.id; });
+      save(STORE.home, home); moving = -1; render(); return;
+    }
     moving = -1; render(); // re-render from the saved order
   }
 
@@ -364,9 +483,13 @@
   render();                 // instant first paint from the cached list
   tick();
   // Load the live list and weather after the first frame so they never delay it.
-  requestAnimationFrame(function () { setTimeout(function () { refreshApps(); refreshWeather(); }, 0); });
+  requestAnimationFrame(function () { setTimeout(function () { refreshApps(); loadInputs(); refreshWeather(); }, 0); });
   setInterval(refreshWeather, WEATHER_EVERY_MS);
+  // Plugging or unplugging a device updates the Inputs row.
+  if (tz && tz.systeminfo && tz.systeminfo.addPropertyValueChangeListener) {
+    try { tz.systeminfo.addPropertyValueChangeListener('VIDEOSOURCE', loadInputs); } catch (e) { /* unsupported */ }
+  }
   document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) { refreshApps(); refreshWeather(); }
+    if (!document.hidden) { refreshApps(); loadInputs(); refreshWeather(); }
   });
 })();

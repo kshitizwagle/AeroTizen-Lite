@@ -92,3 +92,14 @@ html, body {
   position: fixed; left: 50%; bottom: 64px; width: 720px; margin-left: -360px; padding: 18px 28px;
   border-radius: 20px; background: #2a333c; font-size: 26px; text-align: center;
 }
+
+/* ---- input tiles ---- */
+.tile.input { background: #1a2129; text-align: center; }
+.tile.input.off { opacity: .45; }
+.input-logo { position: absolute; left: 50%; top: 50%; width: 150px !important; height: 150px !important; margin: -95px 0 0 -75px; object-fit: contain !important; }
+.input-name { position: absolute; left: 16px; right: 16px; top: 82px; font-size: 40px; font-weight: 600; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.input-port { position: absolute; left: 0; right: 0; bottom: 30px; font-size: 22px; color: rgba(255,255,255,.55); }
+.tile.input:not(:has(.input-port)) .input-name { top: 100px; }
+
+/* Build version, so the TV shows which build is installed. */
+.version { position: absolute; right: 24px; bottom: 16px; font-size: 16px; color: rgba(255,255,255,.28); }
