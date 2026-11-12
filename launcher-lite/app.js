@@ -13,7 +13,7 @@
   var HIDDEN = /service|emanual|companion|dummy|widget|DclHome001|AeroLite01/i;
   var DEFAULT_HOME = ['youtube', 'netflix', 'prime video', 'jellyfin', 'spotify'];
   var STORE = { apps: 'lite.apps.v1', home: 'lite.home.v1', weather: 'lite.weather.v1', tab: 'lite.tab.v1' };
-  var WEATHER_UNIT = 'F';       // 'C' or 'F'
+  var WEATHER_UNIT = 'C';       // 'C' or 'F'
   var WEATHER_EVERY_MS = 30 * 60 * 1000;
 
   var tz = window.tizen;
@@ -304,7 +304,7 @@
   }
   function refreshWeather() {
     var cached = load(STORE.weather, null);
-    showWeather(cached);
+    if (cached && cached.unit === WEATHER_UNIT) { showWeather(cached); } // never flash the old unit
     if (cached && cached.unit === WEATHER_UNIT && Date.now() - cached.at < WEATHER_EVERY_MS) { return; }
     getJSON('https://ipapi.co/json/', function (geo) {
       if (!geo || typeof geo.latitude !== 'number') { return; }
